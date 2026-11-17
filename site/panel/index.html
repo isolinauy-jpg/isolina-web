@@ -171,10 +171,16 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   <form class="lbox" id="loginForm">
     <img src="/apple-touch-icon.png" alt="">
     <h1>Isolina</h1>
-    <p>Panel de pedidos. Te mandamos un link a tu mail para entrar, sin contraseña.</p>
+    <p id="loginIntro">Panel de pedidos</p>
     <label for="email" class="fl" style="text-align:left">Mail</label>
-    <input id="email" type="email" autocomplete="email" value="isolinauy@gmail.com" required>
-    <button class="btn btn-blue" id="loginBtn" type="submit" style="justify-content:center">Enviarme el link</button>
+    <input id="email" type="email" autocomplete="username" value="isolinauy@gmail.com" required>
+    <label for="pass" class="fl" style="text-align:left" id="passLbl">Contraseña</label>
+    <input id="pass" type="password" autocomplete="current-password" minlength="8" required>
+    <button class="btn btn-blue" id="loginBtn" type="submit" style="justify-content:center">Entrar</button>
+    <div style="display:flex;justify-content:space-between;gap:10px;font-size:.85rem">
+      <a href="#" id="toFirst">Primera vez: crear contraseña</a>
+      <a href="#" id="toForgot">Olvidé mi contraseña</a>
+    </div>
     <p id="loginMsg" role="status"></p>
     <button class="btn btn-line" id="logoutBad" type="button" hidden style="justify-content:center">Salir de esta cuenta</button>
   </form>

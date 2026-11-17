@@ -29,6 +29,7 @@ let audio = null, sndOn = false;
 
 /* ---------- auth ---------- */
 async function init() {
+  if (loginMode === "newpass") { showLogin(); setLoginMode("newpass"); return; }
   const { data: { session } } = await sb.auth.getSession();
   if (!session) return showLogin();
   const { data: ok, error } = await sb.rpc("es_admin");
@@ -44,16 +45,46 @@ function showLogin(msg, signedIn) {
   $("#loginMsg").innerHTML = msg || "";
   $("#logoutBad").hidden = !signedIn;
 }
+let loginMode = new URLSearchParams(location.hash.slice(1)).get("type") === "recovery" ? "newpass" : "login";
+function setLoginMode(m) {
+  loginMode = m;
+  const L = { login: ["Panel de pedidos", "Contraseña", "Entrar", "current-password", false],
+              first: ["Elegí una contraseña de al menos 8 caracteres. Te va a llegar un mail para confirmar la cuenta (es una sola vez).", "Contraseña nueva", "Crear contraseña", "new-password", false],
+              forgot: ["Te mandamos un mail con un link para elegir una contraseña nueva.", "", "Enviar mail", "", true],
+              newpass: ["Elegí tu contraseña nueva.", "Contraseña nueva", "Guardar contraseña", "new-password", false] }[m];
+  $("#loginIntro").textContent = L[0]; $("#passLbl").textContent = L[1]; $("#loginBtn").textContent = L[2];
+  $("#pass").autocomplete = L[3] || "off"; $("#pass").hidden = $("#passLbl").hidden = L[4]; $("#pass").required = !L[4];
+  $("#email").disabled = m === "newpass"; $("#loginMsg").textContent = "";
+}
+$("#toFirst").addEventListener("click", e => { e.preventDefault(); setLoginMode("first"); });
+$("#toForgot").addEventListener("click", e => { e.preventDefault(); setLoginMode("forgot"); });
 $("#loginForm").addEventListener("submit", async e => {
   e.preventDefault();
-  const email = $("#email").value.trim();
-  const btn = $("#loginBtn"); btn.disabled = true;
-  const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + "/panel/" } });
-  btn.disabled = false;
-  $("#loginMsg").innerHTML = error ? `No se pudo enviar el link: ${esc(error.message)}` : `Listo. Te mandamos un link a <b>${esc(email)}</b>. Abrilo desde este mismo navegador para entrar.`;
+  const email = $("#email").value.trim(), pass = $("#pass").value, btn = $("#loginBtn"), msg = $("#loginMsg");
+  btn.disabled = true; msg.textContent = "";
+  try {
+    if (loginMode === "login") {
+      const { error } = await sb.auth.signInWithPassword({ email, password: pass });
+      if (error) msg.textContent = /confirm/i.test(error.message) ? "Falta confirmar la cuenta: abrí el mail que te mandamos al crear la contraseña." : "Mail o contraseña incorrectos. Si es la primera vez, tocá «Primera vez: crear contraseña».";
+      else return init();
+    } else if (loginMode === "first") {
+      const { data, error } = await sb.auth.signUp({ email, password: pass, options: { emailRedirectTo: location.origin + "/panel/" } });
+      if (error && /registered|already/i.test(error.message)) { msg.textContent = "Ese mail ya tiene cuenta. Tocá «Olvidé mi contraseña» para elegir una nueva."; }
+      else if (error) msg.textContent = "No se pudo crear: " + error.message;
+      else if (data.session) return init();
+      else msg.innerHTML = `Listo. Te mandamos un mail a <b>${esc(email)}</b>: tocá el link para confirmar la cuenta y después entrá con tu mail y contraseña.`;
+    } else if (loginMode === "forgot") {
+      const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + "/panel/" });
+      msg.innerHTML = error ? "No se pudo enviar: " + esc(error.message) : `Te mandamos un mail a <b>${esc(email)}</b> con un link para elegir la contraseña.`;
+    } else if (loginMode === "newpass") {
+      const { error } = await sb.auth.updateUser({ password: pass });
+      if (error) msg.textContent = "No se pudo guardar: " + error.message;
+      else { history.replaceState(null, "", location.pathname); setLoginMode("login"); return init(); }
+    }
+  } finally { btn.disabled = false; }
 });
 $("#logoutBad").addEventListener("click", async () => { await sb.auth.signOut(); location.reload(); });
-sb.auth.onAuthStateChange((ev) => { if (ev === "SIGNED_IN" && $("#app").hidden) init(); if (ev === "SIGNED_OUT") location.reload(); });
+sb.auth.onAuthStateChange((ev) => { if (ev === "PASSWORD_RECOVERY") { $("#app").hidden = true; $("#login").hidden = false; setLoginMode("newpass"); return; } if (ev === "SIGNED_IN" && $("#app").hidden && loginMode !== "newpass") init(); if (ev === "SIGNED_OUT") location.reload(); });
 
 /* ---------- data ---------- */
 async function loadAll() {
