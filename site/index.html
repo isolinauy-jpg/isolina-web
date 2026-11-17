@@ -161,6 +161,7 @@ textarea{min-height:76px;resize:vertical}
 .seg{display:flex;background:#fff;border-radius:999px;padding:4px;gap:4px}
 .seg button{flex:1;border:0;border-radius:999px;padding:10px;background:transparent;color:var(--azul);font-weight:600;font-size:.92rem}
 .seg button[aria-pressed="true"]{background:var(--azul);color:var(--crema)}
+.bankbox{background:var(--crema);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:6px}.bankbox pre{margin:0;white-space:pre-wrap;font-family:var(--body);font-weight:600;font-size:1rem}
 .consent{gap:8px}
 .seg.plan{max-width:560px;margin-bottom:16px;background:#fff}
 .seg.plan button{font-size:.86rem;padding:10px 12px}
@@ -343,138 +344,8 @@ footer .wrap{padding-block:26px;display:flex;flex-wrap:wrap;justify-content:spac
 
 <div class="mbar" id="mbar"><div><small id="mCount">0 viandas</small><span class="v" id="mTotal">$0</span></div><a class="btn btn-orange" href="#pedido">Completar datos</a></div>
 
-<script>
-const WEEKS=[
- {id:"w1",label:"Semana del 16/11",dates:["16/11","17/11","18/11","19/11","20/11"],menu:[
-  ["Churrasco con puré"],
-  ["Albóndigas en salsa con arroz"],
-  ["Milanesa napolitana con guarnición"],
-  ["Bife de pescado con ensalada primavera"],
-  ["Hamburguesa Isolina","Cheddar, panceta, huevo frito y papas fritas"]]},
- {id:"w2",label:"Semana del 23/11",dates:["23/11","24/11","25/11","26/11","27/11"],menu:null}
-];
-const DAYS=["Lunes","Martes","Miércoles","Jueves","Viernes"];
-const P={dia:390,cupo:2800,cupoN:9};
-let plan="suelta";
-// state: qty[week][day][opt]
-const qty={w1:[[0,0],[0,0],[0,0],[0,0],[0,0]],w2:[[0,0],[0,0],[0,0],[0,0],[0,0]]};
-const YEAR=2026,CUTOFF_H=11; // día suelto: se pide hasta las 11:00 de ese día
-function closed(wid,i){const w=WEEKS.find(x=>x.id===wid);if(!w.menu)return true;const[d,m]=w.dates[i].split("/").map(Number);return new Date()>=new Date(YEAR,m-1,d,CUTOFF_H,0)}
-WEEKS.forEach(w=>qty[w.id].forEach((d,i)=>{if(closed(w.id,i)){d[0]=0;d[1]=0}}));
-let pagoM="transfer";
-let cur="w1", modo="retiro"; // envíos desactivados por ahora: para volver a activarlos, mostrar #modo y arrancar en "envio"
-const fmt=n=>"$"+n.toLocaleString("es-UY");
-
-function weekCount(w){return qty[w].reduce((a,x)=>a+x[0]+x[1],0)}
-function calc(){
-  const count=WEEKS.reduce((a,w)=>a+weekCount(w.id),0);
-  if(plan==="cuponera"){
-    return{count,total:P.cupo,rest:P.cupoN-count,lines:[{label:"Cuponera anticipada",count:P.cupoN,unit:null}],save:P.dia*P.cupoN-P.cupo,sellos:0,ok:true};
-  }
-  const lines=WEEKS.map(w=>({label:w.label,count:weekCount(w.id),unit:P.dia})).filter(l=>l.count);
-  return{count,total:count*P.dia,rest:0,lines,save:0,sellos:count,ok:count>0};
-}
-function renderTabs(){
-  document.getElementById("tabs").innerHTML=WEEKS.map(w=>`<button class="tab ${weekCount(w.id)?"full":""}" role="tab" aria-selected="${w.id===cur}" data-w="${w.id}"><span class="ok"></span>${w.label}</button>`).join("");
-}
-function renderDays(){
-  const w=WEEKS.find(x=>x.id===cur);
-  if(!w.menu){document.getElementById("days").innerHTML=`<div class="day closed"><div class="dname">Pronto<small>${w.dates[0]} al ${w.dates[4]}</small></div><div class="opts"><div class="oname">Estamos armando el menú de esta semana. Lo publicamos en estos días.</div></div></div>`;return}
-  document.getElementById("days").innerHTML=w.menu.map((m,i)=>{
-    const has=qty[cur][i][0]+qty[cur][i][1]>0,off=closed(cur,i),name=m[0];
-    return `<div class="day ${has?"has":""} ${off?"closed":""}"><div class="dname">${DAYS[i]}<small>${w.dates[i]}</small></div><div class="opts">
-      <div class="opt"><div><div class="olabel">${off?"Cerrado":"Plato del día"}</div><div class="oname">${name}</div>${m[1]?`<div class="odesc">${m[1]}</div>`:""}</div>
-      ${off?`<span class="olabel">Pedidos hasta las 11:00</span>`:`<div class="qty"><button type="button" aria-label="Quitar ${name}" data-d="${i}" data-o="0" data-s="-1" ${qty[cur][i][0]?"":"disabled"}>−</button><output>${qty[cur][i][0]}</output><button type="button" aria-label="Agregar ${name}" data-d="${i}" data-o="0" data-s="1" ${plan==="cuponera"&&calc().rest<=0?"disabled":""}>+</button></div>`}</div>
-    </div></div>`}).join("");
-}
-function renderNudge(){
-  const c=calc();let t="";
-  if(plan==="cuponera"){
-    t=c.rest>0?`Elegiste <b>${c.count} de 9</b>. Las que no elijas ahora las reservás después, dentro de los 15 días hábiles.`:`<b>Elegiste las 9 viandas</b> de tu cuponera.`;
-  }else if(c.count>=6){
-    t=`Si vas a pedir 8 o más, la <b>cuponera anticipada</b> te sale $311 cada vianda.`;
-  }else t="Marcá cuántas viandas querés cada día. Cada una suma un sello.";
-  document.getElementById("nudge").innerHTML=t;
-}
-function stampsHTML(n){const k=Math.min(n,8);let h="";for(let i=0;i<8;i++)h+=`<i class="${i<k?"on":""}"></i>`;return `<span class="stamps" aria-label="${k} de 8 sellos">${h}<i class="gift"></i></span>`}
-function renderSummary(){
-  const c=calc();const el=document.getElementById("sumBody");
-  if(plan==="cuponera"){
-    el.innerHTML=`<div class="srow"><span>Cuponera anticipada</span><span>9 viandas</span></div>`+
-     `<div class="srow sub"><span>Elegidas ahora</span><span>${c.count} · quedan ${c.rest}</span></div>`+
-     `<div class="total"><span>Total</span><span class="v">${fmt(c.total)}</span></div>`+
-     `<div class="save">Ahorrás ${fmt(c.save)}: cada vianda te sale $311</div>`+
-     `<div class="srow sub"><span>Válida por</span><span>15 días hábiles</span></div>`;
-  }else if(!c.count){el.innerHTML='<p class="empty">Todavía no elegiste platos.</p>'}
-  else el.innerHTML=c.lines.map(l=>`<div class="srow"><span>${l.label}</span><span>${l.count} × ${fmt(l.unit)}</span></div>`).join("")+
-   `<div class="total"><span>Total</span><span class="v">${fmt(c.total)}</span></div>`+
-   `<div class="srow sub" style="align-items:center"><span>Sumás ${c.sellos} sello${c.sellos===1?"":"s"}</span>${stampsHTML(c.sellos)}</div>`;
-  el.innerHTML+=`<div class="srow sub"><span>Retiro en el local</span><span>Plácido Ellauri 3369</span></div>`;
-  document.getElementById("mCount").textContent=plan==="cuponera"?"Cuponera · 9 viandas":c.count+(c.count===1?" vianda":" viandas");
-  document.getElementById("mTotal").textContent=fmt(c.total);
-  document.getElementById("mbar").hidden=!(c.count>0||plan==="cuponera");
-}
-function renderAll(){renderTabs();renderDays();renderNudge();renderSummary()}
-
-document.getElementById("plan").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;plan=b.dataset.v;
-  document.querySelectorAll("#plan button").forEach(x=>x.setAttribute("aria-pressed",x.dataset.v===plan));
-  if(plan==="cuponera"){let left=P.cupoN;for(const w of WEEKS)qty[w.id].forEach(d=>{const k=Math.min(d[0],left);d[0]=k;d[1]=0;left-=k})}
-  renderAll()});
-document.getElementById("tabs").addEventListener("click",e=>{const b=e.target.closest(".tab");if(!b)return;cur=b.dataset.w;renderAll()});
-document.getElementById("days").addEventListener("click",e=>{const b=e.target.closest("button[data-s]");if(!b)return;
-  const d=+b.dataset.d,o=+b.dataset.o;if(closed(cur,d))return;qty[cur][d][o]=Math.max(0,Math.min(20,qty[cur][d][o]+ +b.dataset.s));renderAll()});
-
-const HORAS={envio:["11:30 a 12:30","12:30 a 13:30"],retiro:["11:00 a 12:00","12:00 a 13:00","13:00 a 14:00","14:00 a 15:00"]};
-function setModo(v){modo=v;document.querySelectorAll("#modo button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.v===v));
-  document.getElementById("fDir").hidden=v!=="envio";
-  document.getElementById("hora").innerHTML=HORAS[v].map(h=>`<option>${h}</option>`).join("");renderSummary()}
-const HINT={transfer:"Te pasamos los datos de la cuenta y nos mandás el comprobante. Sin recargo.",mp:"Pagás con tarjeta de crédito, débito o saldo de Mercado Pago. El pedido queda confirmado al instante."};
-function setPago(v){pagoM=v;document.querySelectorAll("#pago button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.v===v));
-  document.getElementById("pagoHint").textContent=HINT[v];
-  document.getElementById("submitBtn").textContent=v==="mp"?"Pagar con Mercado Pago":"Ver mi pedido";
-  document.getElementById("submitBtn").className="btn "+(v==="mp"?"btn-mp":"btn-blue")}
-document.getElementById("pago").addEventListener("click",e=>{const b=e.target.closest("button");if(b)setPago(b.dataset.v)});
-document.getElementById("modo").addEventListener("click",e=>{const b=e.target.closest("button");if(b)setModo(b.dataset.v)});
-
-document.getElementById("form").addEventListener("submit",e=>{
-  e.preventDefault();const v=id=>document.getElementById(id).value.trim();const err=document.getElementById("err");
-  const c=calc();
-  if(!c.ok){err.textContent="Elegí al menos una vianda en el menú.";return}
-  if(!v("nombre")||!v("apellido")){err.textContent="Completá nombre y apellido.";return}
-  if(v("wa").replace(/\D/g,"").length<8){err.textContent="Revisá el número de WhatsApp, parece incompleto.";return}
-  if(modo==="envio"&&!v("dir")){err.textContent="Falta la dirección de entrega.";return}
-  if(!document.getElementById("okDatos").checked){err.textContent="Para tomar el pedido necesitamos que aceptes que guardemos tus datos.";return}
-  err.textContent="";
-  let msg=`Hola Isolina, quiero hacer este pedido:\n`;
-  for(const w of WEEKS){qty[w.id].forEach((d,i)=>{d.forEach((q,o)=>{if(q)msg+=`\n${DAYS[i]} ${w.dates[i]}: ${q} × ${w.menu[i][o]}`})})}
-  msg+=plan==="cuponera"?`\n\nCuponera anticipada (9 viandas): ${fmt(c.total)}\nElegidas ahora: ${c.count} · quedan ${c.rest} para reservar después`:`\n\nTotal: ${c.count} viandas, ${fmt(c.total)} · suma ${c.sellos} sellos`;
-  msg+=`\n${modo==="envio"?"Envío a: "+v("dir"):"Retiro en el local"} · ${v("hora")}`;
-  msg+=`\n\n${v("nombre")} ${v("apellido")} · ${v("wa")}`+(v("notas")?`\nAclaraciones: ${v("notas")}`:"");
-  msg+=document.getElementById("okMenu").checked?`\nQuiero recibir el menú semanal por WhatsApp.`:"";
-  const f0=document.getElementById("form");f0.querySelectorAll(".done").forEach(x=>x.remove());
-  const box=document.createElement("div");box.className="done";
-  box.innerHTML=`<h3>Último paso</h3>
-   <p style="margin:0">Mandanos el pedido por WhatsApp. Te respondemos con los datos para transferir <strong>${fmt(c.total)}</strong> y, con el comprobante, queda confirmado.</p>
-   <details open><summary>Tu pedido</summary><pre id="msg"></pre></details>
-   <div class="actions"><a class="btn btn-orange" target="_blank" rel="noopener" href="https://wa.me/59898101066?text=${encodeURIComponent(msg)}">Enviar por WhatsApp</a><button class="btn btn-blue" type="button" id="copy">Copiar pedido</button></div>
-   <p style="margin:0;font-size:.85rem">¿No se abre WhatsApp? Copiá el pedido y mandalo al 098 101 066.</p>`;
-  box.querySelector("#msg").textContent=msg;
-  f0.appendChild(box);
-  box.querySelector("#copy").addEventListener("click",ev=>{const b=ev.currentTarget;
-    navigator.clipboard.writeText(msg).then(()=>b.textContent="Copiado").catch(()=>{const r=document.createRange();r.selectNodeContents(box.querySelector("#msg"));const g=getSelection();g.removeAllRanges();g.addRange(r);b.textContent="Seleccionado, copiá con Ctrl+C"})});
-  box.scrollIntoView({behavior:"smooth",block:"nearest"});
-});
-setModo("retiro");setPago("transfer");renderAll();
-(function(){const ua=navigator.userAgent||"";const ios=/iPhone|iPad|iPod/.test(ua),and=/Android/.test(ua);
-  const mark=id=>{const b=document.getElementById(id);b.classList.add("me");b.querySelector(".yours").hidden=false;b.parentNode.insertBefore(b,b.parentNode.querySelector(".pinbox"))};
-  if(ios)mark("pinIos");else if(and)mark("pinAnd");
-  let ev=null;const btn=document.getElementById("installBtn");
-  window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();ev=e;btn.hidden=false});
-  btn.addEventListener("click",async()=>{if(!ev)return;ev.prompt();try{await ev.userChoice}catch(_){}ev=null;btn.hidden=true});
-  window.addEventListener("appinstalled",()=>{btn.hidden=true});
-  if(window.matchMedia&&matchMedia("(display-mode: standalone)").matches)document.getElementById("app").hidden=true;
-})();
-</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="/app.js"></script>
 
 </body>
 </html>
