@@ -55,8 +55,9 @@ function setLoginMode(m) {
   $("#loginIntro").textContent = L[0]; $("#passLbl").textContent = L[1]; $("#loginBtn").textContent = L[2];
   $("#pass").autocomplete = L[3] || "off"; $("#pass").hidden = $("#passLbl").hidden = L[4]; $("#pass").required = !L[4];
   $("#email").disabled = m === "newpass"; $("#loginMsg").textContent = "";
+  $("#toLogin").hidden = m === "login"; $("#toForgot").hidden = m !== "login";
 }
-$("#toFirst").addEventListener("click", e => { e.preventDefault(); setLoginMode("first"); });
+$("#toLogin").addEventListener("click", e => { e.preventDefault(); setLoginMode("login"); });
 $("#toForgot").addEventListener("click", e => { e.preventDefault(); setLoginMode("forgot"); });
 $("#loginForm").addEventListener("submit", async e => {
   e.preventDefault();
