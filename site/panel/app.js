@@ -28,7 +28,12 @@ let state = { pedidos: [], menu: {}, ajustes: {}, tab: "pedidos", filter: "activ
 let audio = null, sndOn = false;
 
 /* ---------- auth ---------- */
+let starting = false, started = false;
 async function init() {
+  if (starting || started) return; starting = true;
+  try { await start(); } finally { starting = false; }
+}
+async function start() {
   if (loginMode === "newpass") { showLogin(); setLoginMode("newpass"); return; }
   const { data: { session } } = await sb.auth.getSession();
   if (!session) return showLogin();
@@ -37,7 +42,8 @@ async function init() {
   $("#login").hidden = true; $("#app").hidden = false;
   $("#who").textContent = session.user.email;
   await loadAll();
-  subscribe();
+  if (!started) subscribe();
+  started = true;
   render();
 }
 function showLogin(msg, signedIn) {
@@ -66,8 +72,8 @@ $("#loginForm").addEventListener("submit", async e => {
   try {
     if (loginMode === "login") {
       const { error } = await sb.auth.signInWithPassword({ email, password: pass });
-      if (error) msg.textContent = /confirm/i.test(error.message) ? "Falta confirmar la cuenta: abrí el mail que te mandamos al crear la contraseña." : "Mail o contraseña incorrectos. Si es la primera vez, tocá «Primera vez: crear contraseña».";
-      else return init();
+      if (error) msg.textContent = "Mail o contraseña incorrectos.";
+      else { msg.textContent = "Entrando…"; return init(); }
     } else if (loginMode === "first") {
       const { data, error } = await sb.auth.signUp({ email, password: pass, options: { emailRedirectTo: location.origin + "/panel/" } });
       if (error && /registered|already/i.test(error.message)) { msg.textContent = "Ese mail ya tiene cuenta. Tocá «Olvidé mi contraseña» para elegir una nueva."; }
@@ -85,7 +91,8 @@ $("#loginForm").addEventListener("submit", async e => {
   } finally { btn.disabled = false; }
 });
 $("#logoutBad").addEventListener("click", async () => { await sb.auth.signOut(); location.reload(); });
-sb.auth.onAuthStateChange((ev) => { if (ev === "PASSWORD_RECOVERY") { $("#app").hidden = true; $("#login").hidden = false; setLoginMode("newpass"); return; } if (ev === "SIGNED_IN" && $("#app").hidden && loginMode !== "newpass") init(); if (ev === "SIGNED_OUT") location.reload(); });
+// Nota: no llamar a Supabase dentro de este callback (se traba); se difiere con setTimeout.
+sb.auth.onAuthStateChange((ev) => { setTimeout(() => { if (ev === "PASSWORD_RECOVERY") { $("#app").hidden = true; $("#login").hidden = false; setLoginMode("newpass"); return; } if (ev === "SIGNED_IN" && $("#app").hidden && loginMode !== "newpass") init(); if (ev === "SIGNED_OUT") location.reload(); }, 0); });
 
 /* ---------- data ---------- */
 async function loadAll() {
