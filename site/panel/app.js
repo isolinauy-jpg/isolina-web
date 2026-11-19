@@ -264,7 +264,7 @@ async function drawer(id) {
   state.fresh.delete(id);
   const its = o.pedido_items.slice().sort((a,b)=>a.fecha.localeCompare(b.fecha)).map(i => `<div><span>${dayShort(i.fecha)} · ${esc(plato(i.fecha))}</span><b>×${i.cantidad}</b></div>`).join("");
   let rc = `<div class="receipt"><span class="ic">—</span><span>Todavía no mandó comprobante por la web. Puede llegar por WhatsApp.</span></div>`;
-  if (o.comprobante) rc = `<div class="receipt"><span class="ic">${esc(o.comprobante.split(".").pop().toUpperCase().slice(0,4))}</span><span><strong>Comprobante adjunto</strong><span class="sub"><a href="#" data-comp="${esc(o.comprobante)}">Abrir comprobante</a></span></span></div>`;
+  if (o.comprobante) rc = `<div id="compBox" class="compbox"><span class="muted">Cargando comprobante…</span></div>`;
   $("#layer").innerHTML = `<div class="scrim" data-close></div><aside class="drawer" role="dialog" aria-label="Pedido ${o.id}">
    <div class="dhead"><div><span class="id">#${o.id} · ${hora(o.creado)}</span><h3>${esc(o.nombre)} ${esc(o.apellido)}</h3><div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">${pill(PAGO[o.pago])}${pill(EST[o.estado])}${o.tipo==="cuponera"?pill(["Cuponera","p-info"]):""}</div></div><button class="x" data-close aria-label="Cerrar">×</button></div>
    <dl class="kv"><dt>WhatsApp</dt><dd>${esc(o.whatsapp)}</dd>${esEnvio(o)?`<dt>Envío</dt><dd>${esc(o.direccion||"")}<br>${esc(o.franja)}${o.costo_envio?` · envío ${fmt(o.costo_envio)}`:""}</dd>`:`<dt>Retiro</dt><dd>${esc(o.franja)}</dd>`}${o.notas?`<dt>Para la cocina</dt><dd>${esc(o.notas)}</dd>`:""}<dt>Menú semanal</dt><dd>${o.recibe_menu?"Quiere recibirlo":"No"}</dd></dl>
@@ -277,6 +277,18 @@ async function drawer(id) {
    ${o.estado==="confirmado"?`<div><div class="lbl">Mensaje de confirmación</div><pre class="msg">${esc(confirmMsg(o))}</pre><div class="acts" style="margin-top:8px"><a class="btn btn-wa" target="_blank" rel="noopener" href="${waLink(o.whatsapp, confirmMsg(o))}">Enviar por WhatsApp</a></div></div>`:o.pago!=="pagado"?`<p class="muted">Para confirmar, primero marcá el pago como recibido.</p>`:""}
    ${o.estado!=="cancelado"?`<details><summary class="lbl" style="cursor:pointer">Más opciones</summary><div class="acts" style="margin-top:8px"><button class="btn btn-line" data-act="cancelar" data-id="${o.id}">Cancelar pedido</button></div></details>`:""}
   </aside>`;
+  if (o.comprobante) showComp(o.comprobante);
+}
+// El comprobante se muestra adentro del pedido (antes se abría en otra pestaña y el navegador lo bloqueaba).
+async function showComp(path) {
+  const box = $("#compBox"); if (!box) return;
+  const { data, error } = await sb.storage.from("comprobantes").createSignedUrl(path, 3600);
+  if (!$("#compBox")) return;
+  if (error || !data) { box.innerHTML = `<span class="muted">No se pudo cargar el comprobante. Probá cerrar y abrir el pedido.</span>`; return; }
+  const u = esc(data.signedUrl), pdf = /\.pdf$/i.test(path), heic = /\.heic$/i.test(path);
+  box.innerHTML = pdf ? `<iframe src="${u}" title="Comprobante"></iframe><a class="btn btn-line" href="${u}" target="_blank" rel="noopener">Abrir PDF en grande</a>`
+    : heic ? `<a class="btn btn-line" href="${u}" target="_blank" rel="noopener" download>Descargar comprobante (HEIC)</a>`
+    : `<a href="${u}" target="_blank" rel="noopener" title="Ver en grande"><img src="${u}" alt="Comprobante del pedido"></a>`;
 }
 
 function afterRender() {}
@@ -296,7 +308,6 @@ document.addEventListener("click", async e => {
   const rd = t.closest("[data-rd]"); if (rd) { state.rDay = rd.dataset.rd; render(); return; }
   const row = t.closest("tr.click"); if (row) { drawer(+row.dataset.id); return; }
   if (t.closest("[data-close]")) { $("#layer").innerHTML = ""; return; }
-  const cp = t.closest("[data-comp]"); if (cp) { e.preventDefault(); const { data, error } = await sb.storage.from("comprobantes").createSignedUrl(cp.dataset.comp, 300); if (error) return toast("No se pudo abrir el comprobante."); window.open(data.signedUrl, "_blank", "noopener"); return; }
   const a = t.closest("[data-act]"); if (a) { const id = +a.dataset.id;
     if (a.dataset.act === "pagar") return upd(id, { pago: "pagado" }, `Pago de #${id} marcado como recibido`);
     if (a.dataset.act === "confirmar") return upd(id, { estado: "confirmado" }, `Pedido #${id} confirmado`);

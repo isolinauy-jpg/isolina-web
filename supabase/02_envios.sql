@@ -73,3 +73,4 @@ revoke all on function public.crear_pedido(json) from public;
 grant execute on function public.crear_pedido(json) to anon, authenticated;
 revoke all on function public.config_publica() from public;
 grant execute on function public.config_publica() to anon, authenticated;
+update public.ajustes set valor='40' where clave='costo_envio' and valor='';
