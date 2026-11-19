@@ -308,6 +308,14 @@ footer .wrap{padding-block:26px;display:flex;flex-wrap:wrap;justify-content:spac
   </div>
 </section>
 
+<!-- Formularios ocultos: Netlify los detecta y manda un mail a Isolina por cada pedido y cada comprobante -->
+<form name="pedido" data-netlify="true" netlify-honeypot="bot" hidden>
+  <input name="bot"><input name="pedido"><input name="cliente"><input name="whatsapp"><input name="entrega"><input name="total"><textarea name="detalle"></textarea>
+</form>
+<form name="comprobante" data-netlify="true" netlify-honeypot="bot" enctype="multipart/form-data" hidden>
+  <input name="bot"><input name="pedido"><input name="cliente"><input type="file" name="archivo">
+</form>
+
 <section class="info" id="info">
   <div class="wrap">
     <div><h3>Retiro y envío</h3><p>Pasá por Plácido Ellauri 3369, a pocas cuadras del Montevideo Shopping, de lunes a viernes de 11:00 a 15:00. Si preferís, te lo llevamos dentro de Pocitos, de 11:00 a 14:00. Elegí la franja que te quede cómoda.</p></div>

@@ -138,6 +138,15 @@ document.getElementById("form").addEventListener("submit", async e => {
   showDone(data, items, c);
 });
 
+// Aviso por mail a Isolina (formularios de Netlify). Si falla, el pedido igual quedó guardado.
+function avisoMail(form, campos, archivo) {
+  try {
+    const fd = new FormData(); fd.append("form-name", form);
+    Object.entries(campos).forEach(([k, val]) => fd.append(k, val));
+    if (archivo) { fd.append("archivo", archivo, archivo.name); fetch("/", { method: "POST", body: fd }).catch(() => {}); }
+    else fetch("/", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(fd).toString() }).catch(() => {});
+  } catch (_) {}
+}
 function showDone(res, items, c) {
   const v = id => document.getElementById(id).value.trim();
   const lines = items.map(it => { const w = WEEKS.find(x => x.dates.includes(it.fecha)); const i = w.dates.indexOf(it.fecha); return `${DAYS[i]} ${dm(it.fecha)}: ${it.cantidad} × ${w.menu[i].plato}`; });
@@ -152,6 +161,9 @@ function showDone(res, items, c) {
    <p style="margin:0;font-size:.88rem">También podés mandarlo por WhatsApp. Apenas lo veamos te confirmamos.</p>
    <div class="actions"><a class="btn btn-orange" target="_blank" rel="noopener" href="https://wa.me/${WA_ISOLINA}?text=${encodeURIComponent(msg)}">Escribir por WhatsApp</a></div>`;
   if (pago) box.querySelector(".bankbox pre").textContent = pago;
+  avisoMail("pedido", { pedido: "#" + res.id, cliente: `${v("nombre")} ${v("apellido")}`, whatsapp: v("wa"),
+    entrega: entrega === "envio" ? `Envío a ${v("dir")} · ${v("hora")}` : `Retiro · ${v("hora")}`,
+    total: fmt(res.total), detalle: `${plan === "cuponera" ? "CUPONERA ANTICIPADA\n" : ""}${lines.join("\n") || "Días a reservar"}${v("notas") ? "\n\nPara la cocina: " + v("notas") : ""}` });
   f0.appendChild(box);
   box.querySelector("#comp").addEventListener("change", async ev => {
     const f = ev.target.files[0], out = box.querySelector("#compOk"); if (!f) return;
@@ -163,6 +175,7 @@ function showDone(res, items, c) {
     if (up.error) { out.textContent = "No se pudo subir. Mandalo por WhatsApp, por favor."; return; }
     await sb.rpc("adjuntar_comprobante", { p_id: res.id, p_ruta: path });
     out.textContent = "Recibimos tu comprobante. Te escribimos para confirmar.";
+    avisoMail("comprobante", { pedido: "#" + res.id, cliente: `${v("nombre")} ${v("apellido")}` }, f);
     ev.target.disabled = true;
   });
   WEEKS.forEach(w => qty[w.id] = [0,0,0,0,0]); renderAll();
