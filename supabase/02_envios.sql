@@ -54,7 +54,8 @@ begin
     if v_cant > nc then raise exception 'La cuponera es de % viandas', nc; end if;
     v_total := pc;
   end if;
-  if v_entrega = 'envio' then v_envio := ce * v_dias; v_total := v_total + v_envio; end if;
+  -- Envío: con costo solo si el pedido es de una vianda; de 2 en adelante, gratis.
+  if v_entrega = 'envio' and v_cant = 1 then v_envio := ce; v_total := v_total + v_envio; end if;
 
   insert into pedidos(nombre, apellido, whatsapp, franja, notas, tipo, total, recibe_menu, entrega, direccion, costo_envio)
   values (trim(p->>'nombre'), trim(p->>'apellido'), trim(p->>'whatsapp'), coalesce(p->>'franja',''),
@@ -73,4 +74,3 @@ revoke all on function public.crear_pedido(json) from public;
 grant execute on function public.crear_pedido(json) to anon, authenticated;
 revoke all on function public.config_publica() from public;
 grant execute on function public.config_publica() to anon, authenticated;
-update public.ajustes set valor='40' where clave='costo_envio' and valor='';

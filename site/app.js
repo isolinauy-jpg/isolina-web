@@ -55,7 +55,7 @@ const weekCount = w => qty[w].reduce((a,x) => a+x, 0);
 function calc() {
   const count = WEEKS.reduce((a,w) => a + weekCount(w.id), 0);
   const dias = WEEKS.reduce((a,w) => a + qty[w.id].filter(q => q > 0).length, 0);
-  const envio = entrega === "envio" ? P.envio * dias : 0;
+  const envio = entrega === "envio" && count === 1 ? P.envio : 0; // envío con costo solo si es una vianda; 2 o más, gratis
   if (plan === "cuponera") return { count, dias, envio, total: P.cupo + envio, rest: P.cupoN - count, save: P.dia*P.cupoN - P.cupo, sellos: 0, ok: true };
   const lines = WEEKS.map(w => ({ label: w.label, count: weekCount(w.id) })).filter(l => l.count);
   return { count, dias, envio, total: count*P.dia + envio, rest: 0, lines, save: 0, sellos: count, ok: count > 0 };
@@ -88,10 +88,10 @@ function renderNudge() {
 function stampsHTML(n) { const k = Math.min(n,8); let h = ""; for (let i=0;i<8;i++) h += `<i class="${i<k?"on":""}"></i>`; return `<span class="stamps" aria-label="${k} de 8 sellos">${h}<i class="gift ${k>=8?"on":""}" title="La 9.ª de regalo">9</i></span>`; }
 function renderSummary() {
   const c = calc(), el = document.getElementById("sumBody");
-  if (plan === "cuponera") el.innerHTML = `<div class="srow"><span>Cuponera anticipada</span><span>${P.cupoN} viandas</span></div><div class="srow sub"><span>Elegidas ahora</span><span>${c.count} · quedan ${c.rest}</span></div>${entrega==="envio"&&P.envio&&c.dias?`<div class="srow sub"><span>Envío en Pocitos</span><span>${c.dias} × ${fmt(P.envio)}</span></div>`:""}<div class="total"><span>Total</span><span class="v">${fmt(c.total)}</span></div><div class="save">Ahorrás ${fmt(c.save)}: cada vianda te sale ${fmt(unitCupo())}</div><div class="srow sub"><span>Válida por</span><span>15 días hábiles</span></div>`;
+  if (plan === "cuponera") el.innerHTML = `<div class="srow"><span>Cuponera anticipada</span><span>${P.cupoN} viandas</span></div><div class="srow sub"><span>Elegidas ahora</span><span>${c.count} · quedan ${c.rest}</span></div>${entrega==="envio"?`<div class="srow sub"><span>Envío en Pocitos</span><span>${c.envio?fmt(c.envio):"Gratis"}</span></div>`:""}<div class="total"><span>Total</span><span class="v">${fmt(c.total)}</span></div><div class="save">Ahorrás ${fmt(c.save)}: cada vianda te sale ${fmt(unitCupo())}</div><div class="srow sub"><span>Válida por</span><span>15 días hábiles</span></div>`;
   else if (!c.count) el.innerHTML = '<p class="empty">Todavía no elegiste platos.</p>';
   else el.innerHTML = c.lines.map(l => `<div class="srow"><span>${l.label}</span><span>${l.count} × ${fmt(P.dia)}</span></div>`).join("") + `<div class="total"><span>Total</span><span class="v">${fmt(c.total)}</span></div><div class="srow sub" style="align-items:center"><span>${Math.min(c.sellos,8)} de 8 sellos</span>${stampsHTML(c.sellos)}</div>`;
-  if (c.count && entrega === "envio") el.innerHTML += `<div class="srow sub"><span>Envío en Pocitos</span><span>${P.envio ? (c.dias ? `${c.dias} × ${fmt(P.envio)}` : fmt(P.envio)+" por día") : "Te confirmamos el costo"}</span></div>`;
+  if (c.count && entrega === "envio") el.innerHTML += `<div class="srow sub"><span>Envío en Pocitos</span><span>${!P.envio || c.count > 1 ? "Gratis" : fmt(P.envio)}</span></div>`;
   el.innerHTML += entrega === "envio" ? `<div class="srow sub"><span>Envío a domicilio</span><span>Dentro de Pocitos</span></div>` : `<div class="srow sub"><span>Retiro en el local</span><span>Plácido Ellauri 3369</span></div>`;
   document.getElementById("mCount").textContent = plan === "cuponera" ? `Cuponera · ${P.cupoN} viandas` : c.count + (c.count===1 ? " vianda" : " viandas");
   document.getElementById("mTotal").textContent = fmt(c.total);
@@ -114,10 +114,10 @@ function setEntrega(v) {
   const sel = document.getElementById("hora"), prev = sel.value, list = v === "envio" ? FRANJAS_ENVIO : FRANJAS;
   sel.innerHTML = list.map(h => `<option>${esc(h)}</option>`).join(""); if (list.includes(prev)) sel.value = prev;
   document.getElementById("horaLbl").textContent = v === "envio" ? "¿En qué horario te lo llevamos?" : "¿A qué hora pasás?";
-  document.getElementById("modoHint").textContent = v === "envio" ? (P.envio ? `Solo dentro de Pocitos, de 11:00 a 14:00. Costo de envío: ${fmt(P.envio)} por día de entrega.` : "Solo dentro de Pocitos, de 11:00 a 14:00. El costo del envío te lo confirmamos por WhatsApp.") : "Plácido Ellauri 3369, Pocitos.";
+  document.getElementById("modoHint").textContent = v === "envio" ? (P.envio ? `Solo dentro de Pocitos, de 11:00 a 14:00. Si pedís una vianda, el envío cuesta ${fmt(P.envio)}. De 2 en adelante, es gratis.` : "Solo dentro de Pocitos, de 11:00 a 14:00. Envío sin costo.") : "Plácido Ellauri 3369, Pocitos.";
   renderSummary();
 }
-document.getElementById("modo").addEventListener("click", e => { const b = e.target.closest("button"); if (b) setEntrega(b.dataset.v); });
+document.getElementById("modo").addEventListener("click", e => { const b = e.target.closest("button"); if (b) { setEntrega(b.dataset.v); guardarDatos(); } });
 document.getElementById("pagoHint").textContent = "Te pasamos los datos de la cuenta y nos mandás el comprobante. Sin recargo.";
 document.getElementById("submitBtn").textContent = "Hacer pedido";
 
@@ -137,6 +137,20 @@ document.getElementById("form").addEventListener("submit", async e => {
   if (error) { err.textContent = (error.message || "No pudimos tomar el pedido.") + " Si el problema sigue, escribinos al 098 101 066."; if (/cerró/.test(error.message||"")) { renderAll(); } return; }
   showDone(data, items, c);
 });
+
+// Recordar los datos del cliente en su propio celular/compu (no se guardan en ningún otro lado).
+const DATOS_KEY = "isolina_datos", CAMPOS = ["nombre","apellido","wa","dir","hora","notas"];
+function guardarDatos() { try { const d = { entrega, okMenu: document.getElementById("okMenu").checked }; CAMPOS.forEach(k => d[k] = document.getElementById(k).value); localStorage.setItem(DATOS_KEY, JSON.stringify(d)); } catch (_) {} }
+function cargarDatos() {
+  let d = null; try { d = JSON.parse(localStorage.getItem(DATOS_KEY) || "null"); } catch (_) {}
+  if (!d) return;
+  CAMPOS.forEach(k => { if (k !== "hora" && d[k]) document.getElementById(k).value = d[k]; });
+  if (typeof d.okMenu === "boolean") document.getElementById("okMenu").checked = d.okMenu;
+  if (d.entrega === "envio" && hayEnvios) entrega = "envio";
+  setEntrega(entrega); if (d.hora) { const sel = document.getElementById("hora"); if ([...sel.options].some(o => o.value === d.hora)) sel.value = d.hora; }
+  if (d.nombre) { const h = document.querySelector(".intro p"); if (h) h.innerHTML = `Hola de nuevo, <b>${esc(d.nombre)}</b>. Dejamos tus datos cargados: revisalos y listo.`; }
+}
+document.getElementById("form").addEventListener("change", guardarDatos);
 
 // Aviso por mail a Isolina (formularios de Netlify). Si falla, el pedido igual quedó guardado.
 function avisoMail(form, campos, archivo) {
@@ -194,4 +208,4 @@ function showDone(res, items, c) {
 })();
 
 renderAll();
-load().then(() => { document.getElementById("fModo").hidden = !hayEnvios; setEntrega(entrega); });
+load().then(() => { document.getElementById("fModo").hidden = !hayEnvios; setEntrega(entrega); cargarDatos(); });

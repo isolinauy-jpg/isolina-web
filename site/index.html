@@ -283,10 +283,10 @@ footer .wrap{padding-block:26px;display:flex;flex-wrap:wrap;justify-content:spac
       <h2>Tus datos</h2>
       <p>Con esto armamos tu pedido. Lo mandás por WhatsApp y te respondemos con los datos para transferir.</p>
     </div>
-    <form id="form" novalidate>
+    <form id="form" novalidate autocomplete="on">
       <div class="f"><label for="nombre">Nombre</label><input id="nombre" autocomplete="given-name"></div>
       <div class="f"><label for="apellido">Apellido</label><input id="apellido" autocomplete="family-name"></div>
-      <div class="f full"><label for="wa">WhatsApp</label><input id="wa" type="tel" inputmode="tel" placeholder="09X XXX XXX"></div>
+      <div class="f full"><label for="wa">WhatsApp</label><input id="wa" type="tel" inputmode="tel" autocomplete="tel-national" placeholder="09X XXX XXX"></div>
       <div class="f full" id="fModo" hidden><span class="flabel">¿Cómo lo recibís?</span>
         <div class="seg" id="modo"><button type="button" data-v="retiro" aria-pressed="true">Retiro en el local</button><button type="button" data-v="envio" aria-pressed="false">Envío en Pocitos</button></div>
         <p class="hint" id="modoHint">Plácido Ellauri 3369, Pocitos.</p>

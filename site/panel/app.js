@@ -108,6 +108,7 @@ async function loadAll() {
   state.pedidos = p.data;
   state.menu = Object.fromEntries(m.data.map(r => [r.fecha, r]));
   state.ajustes = Object.fromEntries(a.data.map(r => [r.clave, r.valor]));
+  if (cli.rows) { cli.rows = null; }
 }
 function subscribe() {
   sb.channel("pedidos").on("postgres_changes", { event: "INSERT", schema: "public", table: "pedidos" }, async payload => {
@@ -138,10 +139,10 @@ function confirmMsg(o) {
 function setTitle() { document.title = state.unseen ? `(${state.unseen}) Nuevo pedido · Isolina Panel` : "Isolina Panel"; }
 function header() {
   const rev = state.pedidos.filter(o => activo(o) && (o.pago !== "pagado" || o.estado === "nuevo")).length;
-  const T = [["pedidos","Pedidos",rev],["semana","Semana"],["retiros","Entregas"],["menu","Menú"],["ajustes","Ajustes"]];
+  const T = [["pedidos","Pedidos",rev],["semana","Semana"],["retiros","Entregas"],["clientes","Clientes"],["menu","Menú"],["ajustes","Ajustes"]];
   $("#tabs").innerHTML = T.map(([k,l,b]) => `<button role="tab" aria-selected="${k===state.tab}" data-t="${k}">${l}${b?`<span class="badge">${b}</span>`:""}</button>`).join("");
 }
-function render() { header(); $("#view").innerHTML = ({pedidos:vPedidos,semana:vSemana,retiros:vRetiros,menu:vMenu,ajustes:vAjustes})[state.tab](); afterRender(); }
+function render() { header(); $("#view").innerHTML = ({pedidos:vPedidos,semana:vSemana,retiros:vRetiros,clientes:vClientes,menu:vMenu,ajustes:vAjustes})[state.tab](); afterRender(); }
 
 function vPedidos() {
   const F = { activos: o => activo(o) && (o.pago !== "pagado" || o.estado === "nuevo"), revisar: o => o.pago === "comprobante" && activo(o), pendiente: o => o.pago === "pendiente" && activo(o), confirmado: o => o.estado === "confirmado", todos: () => true };
@@ -226,6 +227,53 @@ function rutaTxt() {
   return `RETIROS Y ENVÍOS ISOLINA · ${dayName(f)} ${dm(f)}\n` + lista.map((o,k) => { const n = o.pedido_items.filter(i=>i.fecha===f).reduce((a,i)=>a+i.cantidad,0); return `\n${k+1}. ${o.nombre} ${o.apellido} · ${o.franja}${esEnvio(o)?`\n   ENVÍO: ${o.direccion} · ${o.whatsapp}`:" · retira"}\n   ${n} vianda${n>1?"s":""}${o.notas?"\n   OJO: "+o.notas:""}`; }).join("");
 }
 
+/* ---------- clientes ---------- */
+// Base de clientes armada a partir de todos los pedidos (se agrupa por número de WhatsApp).
+const cli = { rows: null, loading: false, f: "todos", q: "" };
+const waKey = w => { let d = String(w||"").replace(/\D/g,""); if (d.startsWith("598")) d = d.slice(3); return d.replace(/^0/,""); };
+async function loadClientes() {
+  if (cli.loading) return; cli.loading = true;
+  const { data, error } = await sb.from("pedidos").select("id,creado,nombre,apellido,whatsapp,entrega,direccion,recibe_menu,total,estado,pago,tipo,pedido_items(cantidad)").order("id", { ascending: true }).limit(10000);
+  cli.loading = false;
+  if (error) { toast("No se pudieron cargar los clientes."); return; }
+  const m = new Map();
+  data.forEach(o => { const k = waKey(o.whatsapp); if (!k) return;
+    const c = m.get(k) || { k, pedidos: 0, viandas: 0, gastado: 0, cupon: 0, primero: o.creado, ultimo: o.creado, cancelados: 0 };
+    c.nombre = o.nombre; c.apellido = o.apellido; c.whatsapp = o.whatsapp; c.recibe_menu = o.recibe_menu; c.ultimo = o.creado;
+    if (o.direccion) c.direccion = o.direccion;
+    if (o.estado === "cancelado") c.cancelados++;
+    else { c.pedidos++; c.viandas += o.pedido_items.reduce((a,i)=>a+i.cantidad,0); if (o.pago === "pagado") c.gastado += o.total; if (o.tipo === "cuponera") c.cupon++; }
+    m.set(k, c); });
+  cli.rows = [...m.values()].sort((a,b) => b.ultimo.localeCompare(a.ultimo)); render();
+}
+const diasSin = c => Math.floor((Date.now() - new Date(c.ultimo)) / 864e5);
+const esFrecuente = c => c.pedidos >= 3 && diasSin(c) <= 30;
+const esInactivo = c => diasSin(c) > 21;
+function vClientes() {
+  if (!cli.rows) { loadClientes(); return `<div class="sec-h"><div><h2>Clientes</h2><p>Cargando…</p></div></div>`; }
+  const F = { todos: () => true, frecuentes: esFrecuente, inactivos: esInactivo, menu: c => c.recibe_menu };
+  const q = cli.q.toLowerCase().trim();
+  const lista = cli.rows.filter(F[cli.f]).filter(c => !q || `${c.nombre} ${c.apellido} ${c.whatsapp} ${c.direccion||""}`.toLowerCase().includes(q));
+  const ch = (k,l) => `<button class="chip" aria-pressed="${cli.f===k}" data-cf="${k}">${l} · ${cli.rows.filter(F[k]).length}</button>`;
+  const rows = lista.map(c => { const d = diasSin(c);
+    return `<tr><td><strong>${esc(c.nombre)} ${esc(c.apellido)}</strong>${esFrecuente(c)?` <span class="pill p-ok">Frecuente</span>`:""}${c.cupon?` <span class="pill p-info">Cuponera</span>`:""}<span class="sub">${c.direccion?esc(c.direccion):"Retira en el local"}</span></td>
+     <td><a href="${waLink(c.whatsapp,`Hola ${c.nombre}, te escribimos de Isolina.`)}" target="_blank" rel="noopener">${esc(c.whatsapp)}</a></td>
+     <td class="num">${c.pedidos}</td><td class="num">${c.viandas}</td><td class="num">${fmt(c.gastado)}</td>
+     <td>${hora(c.ultimo).split(",")[0]}<span class="sub ${d>21?"warn":""}">${d===0?"hoy":`hace ${d} día${d>1?"s":""}`}</span></td><td>${c.recibe_menu?"Sí":"No"}</td></tr>`; }).join("");
+  return `<div class="sec-h"><div><h2>Clientes</h2><p>Todos los que hicieron un pedido en la web. Frecuente: 3 o más pedidos y pidió en el último mes. Inactivo: más de 3 semanas sin pedir.</p></div>
+   <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><input id="cliQ" class="search" placeholder="Buscar nombre, teléfono o dirección" value="${esc(cli.q)}"><button class="btn btn-blue" id="cliXls">Descargar Excel</button></div></div>
+   <div class="filters" style="margin-bottom:12px">${ch("todos","Todos")}${ch("frecuentes","Frecuentes")}${ch("inactivos","Inactivos")}${ch("menu","Reciben el menú")}</div>
+   <div class="card tscroll"><table><thead><tr><th>Cliente</th><th>WhatsApp</th><th class="num">Pedidos</th><th class="num">Viandas</th><th class="num">Pagado</th><th>Último pedido</th><th>Menú semanal</th></tr></thead><tbody>${rows || `<tr><td colspan="7" class="muted">No hay clientes en esta lista.</td></tr>`}</tbody></table></div>`;
+}
+function clientesXls() {
+  const cel = v => { const t = String(v ?? ""); return /[;"\n]/.test(t) ? `"${t.replace(/"/g,'""')}"` : t; };
+  const head = ["Nombre","Apellido","WhatsApp","Dirección","Pedidos","Viandas","Pagado ($)","Primer pedido","Último pedido","Días sin pedir","Recibe menú","Frecuente"];
+  const body = cli.rows.map(c => [c.nombre, c.apellido, c.whatsapp, c.direccion||"", c.pedidos, c.viandas, c.gastado, hora(c.primero).split(",")[0], hora(c.ultimo).split(",")[0], diasSin(c), c.recibe_menu?"Sí":"No", esFrecuente(c)?"Sí":"No"]);
+  const csv = "\ufeff" + [head, ...body].map(r => r.map(cel).join(";")).join("\r\n");
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  a.download = `clientes-isolina-${iso(new Date())}.csv`; document.body.appendChild(a); a.click(); a.remove();
+}
+
 function vMenu() {
   if (!weekOptions().includes(state.week)) state.week = iso(mondayOf(new Date()));
   const dates = weekDates(parseD(state.week));
@@ -303,6 +351,8 @@ document.addEventListener("click", async e => {
   const t = e.target;
   const tb = t.closest("[data-t]"); if (tb) { state.tab = tb.dataset.t; if (state.tab === "pedidos") { state.unseen = 0; setTitle(); } render(); return; }
   const f = t.closest("[data-f]"); if (f) { state.filter = f.dataset.f; render(); return; }
+  const cf = t.closest("[data-cf]"); if (cf) { cli.f = cf.dataset.cf; render(); return; }
+  if (t.closest("#cliXls")) { if (cli.rows) clientesXls(); return; }
   const w = t.closest("[data-w]"); if (w) { state.week = w.dataset.w; render(); return; }
   const wd = t.closest(".wday"); if (wd) { state.rDay = wd.dataset.day; state.tab = "retiros"; render(); return; }
   const rd = t.closest("[data-rd]"); if (rd) { state.rDay = rd.dataset.rd; render(); return; }
@@ -326,6 +376,7 @@ document.addEventListener("change", async e => {
   if (error) return toast("No se pudo guardar.");
   await loadAll(); render();
 });
+document.addEventListener("input", e => { if (e.target.id !== "cliQ") return; cli.q = e.target.value; const pos = e.target.selectionStart; render(); const n = $("#cliQ"); if (n) { n.focus(); n.setSelectionRange(pos, pos); } });
 document.addEventListener("keydown", e => { if (e.key === "Escape") $("#layer").innerHTML = ""; });
 
 async function saveMenu() {
