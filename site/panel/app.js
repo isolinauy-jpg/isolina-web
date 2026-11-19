@@ -8,6 +8,8 @@ const DS = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"];
 const PAGO = {pendiente:["Falta pago","p-bad"],comprobante:["Revisar comprobante","p-warn"],pagado:["Pago recibido","p-ok"]};
 const EST = {nuevo:["Nuevo","p-info"],confirmado:["Confirmado","p-ok"],cancelado:["Cancelado","p-bad"]};
 const DIRECCION = "Plácido Ellauri 3369";
+const esEnvio = o => o.entrega === "envio";
+const entregaTxt = o => esEnvio(o) ? `Envío a ${o.direccion}, de ${o.franja}` : `Retiro en ${DIRECCION}, de ${o.franja}`;
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -123,20 +125,20 @@ const activo = o => o.estado !== "cancelado";
 /* ---------- messages ---------- */
 const pagoTxt = () => (state.ajustes.datos_pago || "").trim();
 function contactMsg(o) {
-  let m = `Hola ${o.nombre}, te escribimos de Isolina por tu pedido #${o.id}.\n\nResumen:\n${itemsTxt(o) || "Cuponera: días a reservar"}\nRetiro en ${DIRECCION}, de ${o.franja}\nTotal: ${fmt(o.total)}`;
+  let m = `Hola ${o.nombre}, te escribimos de Isolina por tu pedido #${o.id}.\n\nResumen:\n${itemsTxt(o) || "Cuponera: días a reservar"}\n${entregaTxt(o)}\nTotal: ${fmt(o.total)}`;
   if (o.pago === "pendiente") m += `\n\nPara confirmarlo nos falta el comprobante de la transferencia. Nos lo podés mandar por acá.` + (pagoTxt() ? `\n\nDatos para transferir:\n${pagoTxt()}\nConcepto: Pedido #${o.id}` : "");
   else if (o.pago === "comprobante") m += `\n\nRecibimos tu comprobante, lo estamos revisando y te confirmamos enseguida.`;
   return m;
 }
 function confirmMsg(o) {
-  return `Hola ${o.nombre}, ¡gracias por elegir Isolina! Tu pedido #${o.id} está confirmado.\n\n${itemsTxt(o) || "Cuponera anticipada: avisanos qué días querés tus viandas."}\nTotal: ${fmt(o.total)}\nRetiro en ${DIRECCION}, de ${o.franja}\n\nCualquier cambio, escribinos por acá.`;
+  return `Hola ${o.nombre}, ¡gracias por elegir Isolina! Tu pedido #${o.id} está confirmado.\n\n${itemsTxt(o) || "Cuponera anticipada: avisanos qué días querés tus viandas."}\nTotal: ${fmt(o.total)}\n${entregaTxt(o)}\n\nCualquier cambio, escribinos por acá.`;
 }
 
 /* ---------- render ---------- */
 function setTitle() { document.title = state.unseen ? `(${state.unseen}) Nuevo pedido · Isolina Panel` : "Isolina Panel"; }
 function header() {
   const rev = state.pedidos.filter(o => activo(o) && (o.pago !== "pagado" || o.estado === "nuevo")).length;
-  const T = [["pedidos","Pedidos",rev],["semana","Semana"],["retiros","Retiros"],["menu","Menú"],["ajustes","Ajustes"]];
+  const T = [["pedidos","Pedidos",rev],["semana","Semana"],["retiros","Entregas"],["menu","Menú"],["ajustes","Ajustes"]];
   $("#tabs").innerHTML = T.map(([k,l,b]) => `<button role="tab" aria-selected="${k===state.tab}" data-t="${k}">${l}${b?`<span class="badge">${b}</span>`:""}</button>`).join("");
 }
 function render() { header(); $("#view").innerHTML = ({pedidos:vPedidos,semana:vSemana,retiros:vRetiros,menu:vMenu,ajustes:vAjustes})[state.tab](); afterRender(); }
@@ -149,17 +151,19 @@ function vPedidos() {
     return `<tr class="click ${state.fresh.has(o.id)?"fresh":""}" data-id="${o.id}"><td class="id">#${o.id}<span class="sub">${hora(o.creado)}</span></td>
     <td><strong>${esc(o.nombre)} ${esc(o.apellido)}</strong><span class="sub">${esc(o.whatsapp)}</span></td>
     <td>${o.tipo==="cuponera"?`<span class="pill p-info">Cuponera</span> `:""}${dias || "<span class='sub'>Días a reservar</span>"}<span class="sub">${nItems(o)} vianda${nItems(o)===1?"":"s"}</span></td>
-    <td>${esc(o.franja)}</td><td class="num"><strong>${fmt(o.total)}</strong></td><td>${pill(PAGO[o.pago])}</td><td>${pill(EST[o.estado])}</td></tr>`;
+    <td>${esEnvio(o)?`<span class="pill p-warn">Envío</span><span class="sub">${esc(o.direccion||"")}</span>`:`<span class="sub">Retiro</span>`}${esc(o.franja)}</td><td class="num"><strong>${fmt(o.total)}</strong></td><td>${pill(PAGO[o.pago])}</td><td>${pill(EST[o.estado])}</td></tr>`;
   }).join("");
   const ch = (k,l) => `<button class="chip" aria-pressed="${state.filter===k}" data-f="${k}">${l} · ${cnt(k)}</button>`;
   return `<div class="sec-h"><div><h2>Pedidos</h2><p>Los pedidos de la web entran acá solos. Tocá uno para revisarlo, marcar el pago y confirmarlo.</p></div>
    <div class="filters">${ch("activos","Para revisar")}${ch("revisar","Con comprobante")}${ch("pendiente","Falta pago")}${ch("confirmado","Confirmados")}${ch("todos","Todos")}</div></div>
-   <div class="card tscroll"><table><thead><tr><th>Pedido</th><th>Cliente</th><th>Días</th><th>Retiro</th><th class="num">Total</th><th>Pago</th><th>Estado</th></tr></thead><tbody>${rows || `<tr><td colspan="7" class="muted">No hay pedidos en esta lista.</td></tr>`}</tbody></table></div>`;
+   <div class="card tscroll"><table><thead><tr><th>Pedido</th><th>Cliente</th><th>Días</th><th>Entrega</th><th class="num">Total</th><th>Pago</th><th>Estado</th></tr></thead><tbody>${rows || `<tr><td colspan="7" class="muted">No hay pedidos en esta lista.</td></tr>`}</tbody></table></div>`;
 }
 
+// Se corre sola: siempre la semana actual + 4 hacia adelante (y la anterior fuera del menú, para consultar).
 function weekOptions() {
   const mon = mondayOf(new Date());
-  return [-1,0,1,2].map(k => iso(addDays(mon, 7*k)));
+  const ks = state.tab === "menu" ? [0,1,2,3,4] : [-1,0,1,2,3,4];
+  return ks.map(k => iso(addDays(mon, 7*k)));
 }
 function weekSel() {
   return `<div class="filters">${weekOptions().map(w => `<button class="chip" aria-pressed="${w===state.week}" data-w="${w}">Semana ${dm(w)}</button>`).join("")}</div>`;
@@ -205,24 +209,25 @@ function vRetiros() {
   const fr = [...new Set(lista.map(o => o.franja))].sort();
   const card = o => { const its = o.pedido_items.filter(i => i.fecha === f); const n = its.reduce((a,i)=>a+i.cantidad,0); const done = its.every(i => i.retirado);
     return `<div class="stop ${done?"done":""}"><div class="addr">${esc(o.nombre)} ${esc(o.apellido)}</div>
-     <div class="who"><a href="${waLink(o.whatsapp,"")}" target="_blank" rel="noopener">${esc(o.whatsapp)}</a> · Pedido #${o.id}</div>
+     ${esEnvio(o)?`<div class="note"><b>ENVÍO:</b> ${esc(o.direccion||"")}</div>`:""}<div class="who"><a href="${waLink(o.whatsapp,"")}" target="_blank" rel="noopener">${esc(o.whatsapp)}</a> · Pedido #${o.id}</div>
      <div class="what"><b>${n}</b> vianda${n>1?"s":""} · ${esc(plato(f))}</div>${o.notas?`<div class="note">${esc(o.notas)}</div>`:""}
-     <div class="row"><label class="check"><input type="checkbox" data-ret="${its.map(i=>i.id).join(",")}" ${done?"checked":""}> Retirado</label></div></div>`; };
+     <div class="row"><label class="check"><input type="checkbox" data-ret="${its.map(i=>i.id).join(",")}" ${done?"checked":""}> ${esEnvio(o)?"Entregado":"Retirado"}</label></div></div>`; };
   const listos = lista.filter(o => o.pedido_items.filter(i => i.fecha === f).every(i => i.retirado)).length;
   const vi = lista.reduce((a,o) => a + o.pedido_items.filter(i => i.fecha === f).reduce((x,i)=>x+i.cantidad,0), 0);
-  return `<div class="sec-h"><div><h2>Retiros · ${dayName(f)} ${dm(f)}</h2><p>${vi} viandas para preparar, ${listos} de ${lista.length} ya retirados.</p></div>
+  return `<div class="sec-h"><div><h2>Retiros y envíos · ${dayName(f)} ${dm(f)}</h2><p>${vi} viandas para preparar, ${listos} de ${lista.length} ya entregados.</p></div>
    <div style="display:flex;gap:8px;flex-wrap:wrap">${weekSel()}<button class="btn btn-blue" id="ruta">Copiar lista del día</button></div></div>
    <div class="days">${dates.map(d => `<button aria-pressed="${d===f}" data-rd="${d}">${dayName(d)}<small>${dm(d)} · ${state.pedidos.filter(o=>activo(o)&&o.pago==="pagado"&&o.pedido_items.some(i=>i.fecha===d)).length} retiros</small></button>`).join("")}</div>
    ${hold?`<div class="flag">${hold} pedido${hold>1?"s":""} de este día sin pago confirmado. No figuran en la lista.</div>`:""}
-   ${fr.map(x => `<div class="franja"><h3>De ${esc(x)} · ${lista.filter(o=>o.franja===x).length}</h3><div class="stops">${lista.filter(o=>o.franja===x).map(card).join("")}</div></div>`).join("") || `<p class="muted">No hay retiros este día.</p>`}`;
+   ${fr.map(x => { const g = lista.filter(o=>o.franja===x), ne = g.filter(esEnvio).length; return `<div class="franja"><h3>De ${esc(x)} · ${g.length}${ne?` (${ne} envío${ne>1?"s":""})`:""}</h3><div class="stops">${g.slice().sort((a,b)=>esEnvio(b)-esEnvio(a)).map(card).join("")}</div></div>`; }).join("") || `<p class="muted">No hay retiros este día.</p>`}`;
 }
 function rutaTxt() {
   const f = state.rDay;
   const lista = state.pedidos.filter(o => activo(o) && o.pago === "pagado" && o.pedido_items.some(i => i.fecha === f)).sort((a,b) => a.franja.localeCompare(b.franja));
-  return `RETIROS ISOLINA · ${dayName(f)} ${dm(f)}\n` + lista.map((o,k) => { const n = o.pedido_items.filter(i=>i.fecha===f).reduce((a,i)=>a+i.cantidad,0); return `\n${k+1}. ${o.nombre} ${o.apellido} · ${o.franja}\n   ${n} vianda${n>1?"s":""}${o.notas?"\n   OJO: "+o.notas:""}`; }).join("");
+  return `RETIROS Y ENVÍOS ISOLINA · ${dayName(f)} ${dm(f)}\n` + lista.map((o,k) => { const n = o.pedido_items.filter(i=>i.fecha===f).reduce((a,i)=>a+i.cantidad,0); return `\n${k+1}. ${o.nombre} ${o.apellido} · ${o.franja}${esEnvio(o)?`\n   ENVÍO: ${o.direccion} · ${o.whatsapp}`:" · retira"}\n   ${n} vianda${n>1?"s":""}${o.notas?"\n   OJO: "+o.notas:""}`; }).join("");
 }
 
 function vMenu() {
+  if (!weekOptions().includes(state.week)) state.week = iso(mondayOf(new Date()));
   const dates = weekDates(parseD(state.week));
   const rows = dates.map(f => { const m = state.menu[f] || {};
     return `<div class="mrow"><div class="mday"><strong>${dayName(f)}</strong><span>${dm(f)}</span></div>
@@ -246,6 +251,10 @@ function vAjustes() {
     </div>
     <label class="fl" for="aj-fr">Franjas de retiro<small>Separadas por |</small></label>
     <input id="aj-fr" value="${esc(a.franjas||"")}">
+    <div class="grid2">
+     <div><label class="fl" for="aj-ce">Costo de envío por día ($)<small>Vacío: la web dice que el costo se confirma por WhatsApp.</small></label><input id="aj-ce" inputmode="numeric" value="${esc(a.costo_envio||"")}"></div>
+     <div><label class="fl" for="aj-fe">Franjas de envío<small>Separadas por |</small></label><input id="aj-fe" value="${esc(a.franjas_envio||"")}"></div>
+    </div>
     <div class="acts"><button class="btn btn-blue" id="saveAj">Guardar ajustes</button></div>
    </div>`;
 }
@@ -258,7 +267,7 @@ async function drawer(id) {
   if (o.comprobante) rc = `<div class="receipt"><span class="ic">${esc(o.comprobante.split(".").pop().toUpperCase().slice(0,4))}</span><span><strong>Comprobante adjunto</strong><span class="sub"><a href="#" data-comp="${esc(o.comprobante)}">Abrir comprobante</a></span></span></div>`;
   $("#layer").innerHTML = `<div class="scrim" data-close></div><aside class="drawer" role="dialog" aria-label="Pedido ${o.id}">
    <div class="dhead"><div><span class="id">#${o.id} · ${hora(o.creado)}</span><h3>${esc(o.nombre)} ${esc(o.apellido)}</h3><div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">${pill(PAGO[o.pago])}${pill(EST[o.estado])}${o.tipo==="cuponera"?pill(["Cuponera","p-info"]):""}</div></div><button class="x" data-close aria-label="Cerrar">×</button></div>
-   <dl class="kv"><dt>WhatsApp</dt><dd>${esc(o.whatsapp)}</dd><dt>Retiro</dt><dd>${esc(o.franja)}</dd>${o.notas?`<dt>Para la cocina</dt><dd>${esc(o.notas)}</dd>`:""}<dt>Menú semanal</dt><dd>${o.recibe_menu?"Quiere recibirlo":"No"}</dd></dl>
+   <dl class="kv"><dt>WhatsApp</dt><dd>${esc(o.whatsapp)}</dd>${esEnvio(o)?`<dt>Envío</dt><dd>${esc(o.direccion||"")}<br>${esc(o.franja)}${o.costo_envio?` · envío ${fmt(o.costo_envio)}`:""}</dd>`:`<dt>Retiro</dt><dd>${esc(o.franja)}</dd>`}${o.notas?`<dt>Para la cocina</dt><dd>${esc(o.notas)}</dd>`:""}<dt>Menú semanal</dt><dd>${o.recibe_menu?"Quiere recibirlo":"No"}</dd></dl>
    <div><div class="lbl">Viandas</div><div class="items">${its || `<div><span>Cuponera: días a reservar</span></div>`}</div>
    <div class="kv" style="margin-top:8px"><dt>Total</dt><dd style="font-size:1.2rem;font-weight:700">${fmt(o.total)}</dd></div></div>
    <div><div class="lbl">Comprobante</div>${rc}</div>
@@ -322,7 +331,9 @@ async function saveAjustes() {
     { clave: "datos_pago", valor: $("#aj-pago").value.trim() },
     { clave: "precio_vianda", valor: num("#aj-pv") }, { clave: "precio_cuponera", valor: num("#aj-pc") },
     { clave: "viandas_cuponera", valor: num("#aj-nc") }, { clave: "hora_corte", valor: num("#aj-hc") },
-    { clave: "franjas", valor: $("#aj-fr").value.split("|").map(s => s.trim()).filter(Boolean).join("|") }
+    { clave: "franjas", valor: $("#aj-fr").value.split("|").map(s => s.trim()).filter(Boolean).join("|") },
+    { clave: "costo_envio", valor: num("#aj-ce") },
+    { clave: "franjas_envio", valor: $("#aj-fe").value.split("|").map(s => s.trim()).filter(Boolean).join("|") }
   ];
   if (rows.slice(1, 5).some(r => !r.valor)) return toast("Revisá los números: hay un campo vacío.");
   const { error } = await sb.from("ajustes").upsert(rows);

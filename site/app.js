@@ -10,35 +10,39 @@ const dm = s => { const [y,m,d] = s.split("-").map(Number); return `${d}/${m}`; 
 const fmt = n => "$" + Number(n).toLocaleString("es-UY");
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
-let P = { dia: 390, cupo: 2800, cupoN: 9, corte: 11 };
+let P = { dia: 390, cupo: 2800, cupoN: 9, corte: 11, envio: 0 };
+let entrega = "retiro", hayEnvios = false;
+const SEMANAS_ADELANTE = 4; // semana actual + 4 hacia adelante; se corre sola cada lunes
 let FRANJAS = ["11:00 a 12:00","12:00 a 13:00","13:00 a 14:00","14:00 a 15:00"];
+let FRANJAS_ENVIO = ["11:00 a 12:00","12:00 a 13:00","13:00 a 14:00"];
 let WEEKS = [];           // [{id, label, dates:[iso x5], menu:[{plato,descripcion}|null x5]}]
 const qty = {};           // qty[weekId][dayIdx] = cantidad
 let plan = "suelta", cur = null, loaded = false;
 
 async function load() {
   const mon = mondayOf(new Date());
-  const desde = iso(mon), hasta = iso(addDays(mon, 13));
+  const desde = iso(mon), hasta = iso(addDays(mon, 7*SEMANAS_ADELANTE + 6));
   const [cfg, menu] = await Promise.all([
     sb.rpc("config_publica"),
     sb.from("menu").select("fecha,plato,descripcion").gte("fecha", desde).lte("fecha", hasta).order("fecha")
   ]);
   if (!cfg.error && cfg.data) {
     const c = cfg.data;
-    P = { dia: +c.precio_vianda || 390, cupo: +c.precio_cuponera || 2800, cupoN: +c.viandas_cuponera || 9, corte: +c.hora_corte || 11 };
+    P = { dia: +c.precio_vianda || 390, cupo: +c.precio_cuponera || 2800, cupoN: +c.viandas_cuponera || 9, corte: +c.hora_corte || 11, envio: parseInt(String(c.costo_envio||"").replace(/\D/g,""),10) || 0 };
     if (c.franjas) FRANJAS = c.franjas.split("|");
+    if (c.franjas_envio) { FRANJAS_ENVIO = c.franjas_envio.split("|"); hayEnvios = true; }
   }
   const byDate = Object.fromEntries((menu.data || []).map(r => [r.fecha, r]));
-  WEEKS = [0, 1].map(k => {
+  // Siempre se ven esta semana y la próxima; las siguientes aparecen cuando tienen menú cargado.
+  WEEKS = Array.from({ length: SEMANAS_ADELANTE + 1 }, (_, k) => {
     const m = addDays(mon, 7*k);
     const dates = [0,1,2,3,4].map(i => iso(addDays(m, i)));
     return { id: "w"+k, label: `Semana del ${dm(dates[0])}`, dates, menu: dates.map(f => byDate[f] || null) };
-  });
+  }).filter((w, k) => k < 2 || w.menu.some(Boolean));
   WEEKS.forEach(w => qty[w.id] = [0,0,0,0,0]);
   const firstOpen = WEEKS.find(w => w.dates.some((_, i) => !closed(w.id, i)));
   cur = (firstOpen || WEEKS[0]).id;
   loaded = !menu.error;
-  document.getElementById("hora").innerHTML = FRANJAS.map(h => `<option>${esc(h)}</option>`).join("");
   renderAll();
 }
 
@@ -50,9 +54,11 @@ function closed(wid, i) {
 const weekCount = w => qty[w].reduce((a,x) => a+x, 0);
 function calc() {
   const count = WEEKS.reduce((a,w) => a + weekCount(w.id), 0);
-  if (plan === "cuponera") return { count, total: P.cupo, rest: P.cupoN - count, save: P.dia*P.cupoN - P.cupo, sellos: 0, ok: true };
+  const dias = WEEKS.reduce((a,w) => a + qty[w.id].filter(q => q > 0).length, 0);
+  const envio = entrega === "envio" ? P.envio * dias : 0;
+  if (plan === "cuponera") return { count, dias, envio, total: P.cupo + envio, rest: P.cupoN - count, save: P.dia*P.cupoN - P.cupo, sellos: 0, ok: true };
   const lines = WEEKS.map(w => ({ label: w.label, count: weekCount(w.id) })).filter(l => l.count);
-  return { count, total: count*P.dia, rest: 0, lines, save: 0, sellos: count, ok: count > 0 };
+  return { count, dias, envio, total: count*P.dia + envio, rest: 0, lines, save: 0, sellos: count, ok: count > 0 };
 }
 const unitCupo = () => Math.round(P.cupo / P.cupoN);
 
@@ -79,13 +85,14 @@ function renderNudge() {
   else t = "Marcá cuántas viandas querés cada día. Cada una suma un sello.";
   document.getElementById("nudge").innerHTML = t;
 }
-function stampsHTML(n) { const k = Math.min(n,8); let h = ""; for (let i=0;i<8;i++) h += `<i class="${i<k?"on":""}"></i>`; return `<span class="stamps" aria-label="${k} de 8 sellos">${h}<i class="gift"></i></span>`; }
+function stampsHTML(n) { const k = Math.min(n,8); let h = ""; for (let i=0;i<8;i++) h += `<i class="${i<k?"on":""}"></i>`; return `<span class="stamps" aria-label="${k} de 8 sellos">${h}<i class="gift ${k>=8?"on":""}" title="La 9.ª de regalo">9</i></span>`; }
 function renderSummary() {
   const c = calc(), el = document.getElementById("sumBody");
-  if (plan === "cuponera") el.innerHTML = `<div class="srow"><span>Cuponera anticipada</span><span>${P.cupoN} viandas</span></div><div class="srow sub"><span>Elegidas ahora</span><span>${c.count} · quedan ${c.rest}</span></div><div class="total"><span>Total</span><span class="v">${fmt(c.total)}</span></div><div class="save">Ahorrás ${fmt(c.save)}: cada vianda te sale ${fmt(unitCupo())}</div><div class="srow sub"><span>Válida por</span><span>15 días hábiles</span></div>`;
+  if (plan === "cuponera") el.innerHTML = `<div class="srow"><span>Cuponera anticipada</span><span>${P.cupoN} viandas</span></div><div class="srow sub"><span>Elegidas ahora</span><span>${c.count} · quedan ${c.rest}</span></div>${entrega==="envio"&&P.envio&&c.dias?`<div class="srow sub"><span>Envío en Pocitos</span><span>${c.dias} × ${fmt(P.envio)}</span></div>`:""}<div class="total"><span>Total</span><span class="v">${fmt(c.total)}</span></div><div class="save">Ahorrás ${fmt(c.save)}: cada vianda te sale ${fmt(unitCupo())}</div><div class="srow sub"><span>Válida por</span><span>15 días hábiles</span></div>`;
   else if (!c.count) el.innerHTML = '<p class="empty">Todavía no elegiste platos.</p>';
-  else el.innerHTML = c.lines.map(l => `<div class="srow"><span>${l.label}</span><span>${l.count} × ${fmt(P.dia)}</span></div>`).join("") + `<div class="total"><span>Total</span><span class="v">${fmt(c.total)}</span></div><div class="srow sub" style="align-items:center"><span>Sumás ${c.sellos} sello${c.sellos===1?"":"s"}</span>${stampsHTML(c.sellos)}</div>`;
-  el.innerHTML += `<div class="srow sub"><span>Retiro en el local</span><span>Plácido Ellauri 3369</span></div>`;
+  else el.innerHTML = c.lines.map(l => `<div class="srow"><span>${l.label}</span><span>${l.count} × ${fmt(P.dia)}</span></div>`).join("") + `<div class="total"><span>Total</span><span class="v">${fmt(c.total)}</span></div><div class="srow sub" style="align-items:center"><span>${Math.min(c.sellos,8)} de 8 sellos</span>${stampsHTML(c.sellos)}</div>`;
+  if (c.count && entrega === "envio") el.innerHTML += `<div class="srow sub"><span>Envío en Pocitos</span><span>${P.envio ? (c.dias ? `${c.dias} × ${fmt(P.envio)}` : fmt(P.envio)+" por día") : "Te confirmamos el costo"}</span></div>`;
+  el.innerHTML += entrega === "envio" ? `<div class="srow sub"><span>Envío a domicilio</span><span>Dentro de Pocitos</span></div>` : `<div class="srow sub"><span>Retiro en el local</span><span>Plácido Ellauri 3369</span></div>`;
   document.getElementById("mCount").textContent = plan === "cuponera" ? `Cuponera · ${P.cupoN} viandas` : c.count + (c.count===1 ? " vianda" : " viandas");
   document.getElementById("mTotal").textContent = fmt(c.total);
   document.getElementById("mbar").hidden = !(c.count > 0 || plan === "cuponera");
@@ -100,7 +107,17 @@ document.getElementById("tabs").addEventListener("click", e => { const b = e.tar
 document.getElementById("days").addEventListener("click", e => { const b = e.target.closest("button[data-s]"); if (!b) return;
   const d = +b.dataset.d; if (closed(cur, d)) return; qty[cur][d] = Math.max(0, Math.min(20, qty[cur][d] + +b.dataset.s)); renderAll(); });
 document.getElementById("pago").addEventListener("click", () => {});
-document.getElementById("modo").addEventListener("click", () => {});
+function setEntrega(v) {
+  entrega = v;
+  document.querySelectorAll("#modo button").forEach(x => x.setAttribute("aria-pressed", x.dataset.v === v));
+  document.getElementById("fDir").hidden = v !== "envio";
+  const sel = document.getElementById("hora"), prev = sel.value, list = v === "envio" ? FRANJAS_ENVIO : FRANJAS;
+  sel.innerHTML = list.map(h => `<option>${esc(h)}</option>`).join(""); if (list.includes(prev)) sel.value = prev;
+  document.getElementById("horaLbl").textContent = v === "envio" ? "¿En qué horario te lo llevamos?" : "¿A qué hora pasás?";
+  document.getElementById("modoHint").textContent = v === "envio" ? (P.envio ? `Solo dentro de Pocitos, de 11:00 a 14:00. Costo de envío: ${fmt(P.envio)} por día de entrega.` : "Solo dentro de Pocitos, de 11:00 a 14:00. El costo del envío te lo confirmamos por WhatsApp.") : "Plácido Ellauri 3369, Pocitos.";
+  renderSummary();
+}
+document.getElementById("modo").addEventListener("click", e => { const b = e.target.closest("button"); if (b) setEntrega(b.dataset.v); });
 document.getElementById("pagoHint").textContent = "Te pasamos los datos de la cuenta y nos mandás el comprobante. Sin recargo.";
 document.getElementById("submitBtn").textContent = "Hacer pedido";
 
@@ -111,10 +128,11 @@ document.getElementById("form").addEventListener("submit", async e => {
   if (!c.ok) { err.textContent = "Elegí al menos una vianda en el menú."; return; }
   if (!v("nombre") || !v("apellido")) { err.textContent = "Completá nombre y apellido."; return; }
   if (v("wa").replace(/\D/g,"").length < 8) { err.textContent = "Revisá el número de WhatsApp, parece incompleto."; return; }
+  if (entrega === "envio" && v("dir").length < 5) { err.textContent = "Poné la dirección de entrega (calle, número y apartamento u oficina)."; return; }
   err.textContent = "";
   const items = []; WEEKS.forEach(w => qty[w.id].forEach((q,i) => { if (q) items.push({ fecha: w.dates[i], cantidad: q }); }));
   btn.disabled = true; btn.textContent = "Enviando…";
-  const { data, error } = await sb.rpc("crear_pedido", { p: { tipo: plan, nombre: v("nombre"), apellido: v("apellido"), whatsapp: v("wa"), franja: v("hora"), notas: v("notas"), recibe_menu: document.getElementById("okMenu").checked, items } });
+  const { data, error } = await sb.rpc("crear_pedido", { p: { tipo: plan, nombre: v("nombre"), apellido: v("apellido"), whatsapp: v("wa"), franja: v("hora"), entrega, direccion: entrega === "envio" ? v("dir") : "", notas: v("notas"), recibe_menu: document.getElementById("okMenu").checked, items } });
   btn.disabled = false; btn.textContent = "Hacer pedido";
   if (error) { err.textContent = (error.message || "No pudimos tomar el pedido.") + " Si el problema sigue, escribinos al 098 101 066."; if (/cerró/.test(error.message||"")) { renderAll(); } return; }
   showDone(data, items, c);
@@ -123,7 +141,7 @@ document.getElementById("form").addEventListener("submit", async e => {
 function showDone(res, items, c) {
   const v = id => document.getElementById(id).value.trim();
   const lines = items.map(it => { const w = WEEKS.find(x => x.dates.includes(it.fecha)); const i = w.dates.indexOf(it.fecha); return `${DAYS[i]} ${dm(it.fecha)}: ${it.cantidad} × ${w.menu[i].plato}`; });
-  let msg = `Hola Isolina, hice el pedido #${res.id} en la web.\n\n${lines.join("\n") || "Cuponera anticipada: elijo los días después"}\n\nTotal: ${fmt(res.total)}\nRetiro: ${v("hora")}\n${v("nombre")} ${v("apellido")}`;
+  let msg = `Hola Isolina, hice el pedido #${res.id} en la web.\n\n${lines.join("\n") || "Cuponera anticipada: elijo los días después"}\n\nTotal: ${fmt(res.total)}\n${entrega === "envio" ? `Envío a: ${v("dir")}\nHorario: ${v("hora")}` : `Retiro: ${v("hora")}`}\n${v("nombre")} ${v("apellido")}`;
   const pago = (res.datos_pago || "").trim();
   const f0 = document.getElementById("form"); f0.querySelectorAll(".done").forEach(x => x.remove());
   const box = document.createElement("div"); box.className = "done";
@@ -163,4 +181,4 @@ function showDone(res, items, c) {
 })();
 
 renderAll();
-load();
+load().then(() => { document.getElementById("fModo").hidden = !hayEnvios; setEntrega(entrega); });
